@@ -44,6 +44,8 @@ MAIN:
 	ldi temp,$ff
 	ldi ZH,0x00
 	ldi ZL,0x60
+	ldi XH,0x01
+	ldi XL,0x00
 	out DDRB,temp ; Set port B as output
 	out DDRC,temp ; Set port C as output
 	rcall INIT_LCD
@@ -59,12 +61,19 @@ LOOP:
 	rcall GET_ASCII
 	tst A
 	brne ASCII_TO_LCD
-	clr temp
-	clr A
-	rjmp LOOP
+	rjmp UPDATE
 
 ASCII_TO_LCD:
+	cpi A, 0x43
+	breq CLEAR_UPDATE
 	rcall WRITE_TEXT
+	rjmp UPDATE
+
+CLEAR_UPDATE:
+	rcall CLEAR_LCD
+	rjmp UPDATE
+
+UPDATE:
 	clr temp
 	clr A
 	rjmp LOOP
@@ -225,9 +234,13 @@ GET_ASCII: ; scanned binary is stored in R24
 	breq ENTER
 	cpi total_key, 0xF1
 	breq CLEARKEY
+	cpi total_key, 0x7F
+	breq NULL
 	rjmp NEXT
 
-	
+NULL:
+	LDI A,0x00
+	rjmp NEXT
 ONE:
 	LDI A, 0x31
 	rjmp NEXT
@@ -257,18 +270,6 @@ NINE:
 	rjmp NEXT
 ZERO:
 	LDI A, 0x30
-	rjmp NEXT
-UPKEY:
-	LDI A, 0x55
-	rjmp NEXT
-DOWNKEY:
-	LDI A, 0x44
-	rjmp NEXT
-RIGHTKEY:
-	LDI A, 0x52
-	rjmp NEXT
-LEFTKEY:
-	LDI A, 0x4C
 	rjmp NEXT
 ENTER:
 	LDI A, 0x45
