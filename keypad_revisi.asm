@@ -20,7 +20,6 @@
 .equ pressed = 0
 .equ next_proses = 1
 
-
 ;keypad aktif saat button di lepas
 ;menggunakan polling untuk mengecek tiap kolom dari masing-masing baris
 ;apabila ada perubahan bit (button tertekan) maka program akan otomatis
@@ -38,14 +37,19 @@
 ;jika tidak ada perubahan maka LCD akan menampilkan tulisan "Input ulang ?"
 ;jika ada perubahan loop akan berjalan 
 
+
+;0x60 = Simpan banyak char dalam input (mata kuliah)
+;0x61 = Simpan enter yang terjadi (mata kuliah)
+;0x62 = Simpan enter yang terjadi (absensi)
+
 MAIN:
 	ldi temp,HIGH(RAMEND)
 	out SPH,temp
 	ldi temp,LOW(RAMEND)
 	out SPL,temp
 	ldi temp,$ff
-	ldi XH,0x00
-	ldi XL,0x40
+	rcall INIT_CHECKER
+	rcall INIT_CHAR_DATA
 	ldi proses,0x00
 	st X,proses
 	out DDRB,temp ; Set port B as output
@@ -76,12 +80,60 @@ LOAD_BYTE_2:
 
 FOREVER:
 	rjmp FOREVER
+
+INIT_CHECKER:
+	;check digit yang ke input
+	ldi XH,0x00
+	ldi XL,0x60
+	ldi temp,0x00
+	ST X,temp
+
+	;check char yang ke input (mata kuliah)
+	ldi XH,0x00
+	ldi XL,0x61
+	ldi temp,0x00
+	ST X,temp
+	
+	;check berapa kali enter (mata kuliah)
+	ldi XH,0x00
+	ldi XL,0x62
+	ldi temp,0x00
+	ST X,temp
+	
+	;check char yang ke input (absen)
+	ldi XH,0x00
+	ldi XL,0x63
+	ldi temp,0x00
+	ST X,temp
+	;check berapa kali enter (absen)
+	ldi XH,0x00
+	ldi XL,0x64
+	ldi temp,0x00
+	ST X,temp
+	ret
+
+INIT_SAVE_ABSENSI:
+	ldi XH,0x00
+	ldi XL,0x6C
+	ret
  	 
 INIT_ABSEN :
 	ldi flags,0x00
+	mov r15,flags
+	rcall INIT_CHAR_DATA
 	ST X,flags
 	ldi ZH,HIGH(2*No_Absen)
 	ldi ZL,LOW(2*No_Absen)
+	ret
+
+INIT_CHAR_DATA:
+	ldi XH,0x00
+	ldi XL,0x60
+	ret
+
+INIT_CHAR_SAVED:
+	ldi XH,0x00
+	ldi XL,0x66
 	ret
 
 INIT_COURSE :
@@ -105,26 +157,122 @@ CLEAR:
 	clr temp
 	rjmp LOOP
 
+CLEAR_SAVED_CHAR:
+	ldi XL,0x60
+	ld temp,X
+	mov r9,temp
+	ldi XL,0x61
+	ld flags,X
+	add temp,flags
+	rcall CLEAR_SAVED_DIGIT
+	ret	
+
+CLEAR_SAVED_DIGIT:
+	ldi XL,0x65
+	add XL,temp
+	ldi temp,0x00
+	ST X,temp
+	ldi XL,0x60
+	ld temp,X
+	subi temp,0x01
+	tst temp
+	brne CLEAR_2_DIGIT
+	ret
+
+CLEAR_2_DIGIT:
+	ldi XL,0x65
+	add XL,temp
+	ldi temp,0x00
+	ST X,temp
+	ret
+
+SAVE_TO_MEMORY:
+	ld temp,X
+	cpi temp,0x02
+	breq CEK_TWO_DIGITS
+	ret
+
+CEK_TWO_DIGITS:
+	rcall INIT_CHAR_DATA
+	ld temp,X
+	cpi temp,0x02
+	breq IF_TWO_DIGITS
+	ret
+
+IF_TWO_DIGITS:
+	ldi XL,0x61
+	ld flags,X
+	ldi XL,0x62
+	ld temp,X
+	add flags,temp
+	rcall INIT_CHAR_SAVED
+	add XL,flags
+	ld temp,X
+	rcall first_digit
+	ret
+
+SUCCESS_MESSAGE:
+	ldi XH,0x00
+	ldi XL,0x62
+	ld temp,X
+	ldi flags,0x01
+	add temp,flags
+	ST X,temp
+	ldi XH,0x00
+	ldi XL,0x61
+	ld temp,X
+	subi temp,0x01
+	ST X,temp
+	clr A
+	clr temp
+	rcall INIT_SUCCESS
+	rjmp LOAD_BYTE_2
+
+BALIK_KE_INPUT_AWAL:
+	ldi XH,0x00
+	ldi XL,0x62
+	ld temp,X
+	ldi flags,0x01
+	add temp,flags
+	ST X,temp
+	ldi XH,0x00
+	ldi XL,0x61
+	ld temp,X
+	subi temp,0x01
+	ST X,temp
+	clr A
+	clr temp
+	ldi proses,0x00
+	rcall INIT_COURSE
+	rjmp LOAD_BYTE
+
+ASCII_TO_LCD:
+	cpi A, 0x43
+	breq CLEAR_INPUT
+	cpi A, 0x45
+	breq ENTER_INPUT
+	rcall WRITE_TEXT
+	subi A,48
+	add r15,A
+	add r14,A
+	rcall INCREMENT_X_CHAR
+	rcall INIT_CHAR_DATA
+	ldi temp,0x00
+	mov r15,temp
+	rjmp UPDATE
+
 CLEAR_INPUT:
 	rcall CLEAR_LCD
 	rcall INIT_COURSE
+	rcall CLEAR_SAVED_CHAR
+	ldi XL,0x60
+	ld temp,X
+	ldi temp,0x00
+	ST X,temp
 	clr temp
 	clr A
 	rjmp LOAD_BYTE
 
-ENTER_INPUT:
-	rcall CLEAR_LCD
-	mov temp,r15
-	cpi temp,0x00
-	breq INPUT_NOL	
-	rcall INIT_ABSEN
-	ldi temp,0x01
-	add proses,temp
-	cpi proses,0x02
-	breq SUCCESS_MESSAGE
-	clr temp
-	clr A
-	rjmp LOAD_BYTE
 	
 INPUT_NOL:
 	rcall CLEAR_LCD
@@ -133,11 +281,26 @@ INPUT_NOL:
 	rcall INIT_FORMAT_SALAH
 	rjmp LOAD_BYTE_2
 
-SUCCESS_MESSAGE:
-	clr A
+ENTER_INPUT:
+	rcall CLEAR_LCD
+	mov temp,r14
+	cpi temp,0x00
+	breq INPUT_NOL
+	ld temp,X
+	ldi flags,0x01
+	add temp,flags
+	ST X,temp
+	rcall CEK_TWO_DIGITS
+	rcall INCREMENT_X_ENTER
+	rcall INIT_ABSEN
+	ldi temp,0x01
+	add proses,temp
+	cpi proses,0x02
+	breq BALIK_KE_INPUT_AWAL
 	clr temp
-	rcall INIT_SUCCESS
-	rjmp LOAD_BYTE_2
+	clr A
+	rjmp LOAD_BYTE
+
 
 LOOP:
 	rcall get_key
@@ -148,29 +311,98 @@ LOOP:
 	brne CEK_CHAR
 	rjmp UPDATE
 
-ASCII_TO_LCD:
-	cpi A, 0x43
-	breq CLEAR_INPUT
-	cpi A, 0x45
-	breq ENTER_INPUT
-	rcall WRITE_TEXT
-	subi A,48
-	add r15,A
-	rjmp UPDATE
+INCREMENT_X_CHAR:
+	ldi XH,0x00
+	ldi XL, 0x60
+	ld temp,X
+	ldi flags,1
+	add temp,flags
+	mov r7,temp
+	ldi XH,0x00
+	ldi XL,0x61
+	ld flags,X
+	add temp,flags
+	ldi XH,0x00
+	ldi XL, 0x62
+	ld flags,X
+	add temp,flags
+	mov r8,temp
+	ldi XH,0x00
+	ldi XL, 0x65
+	add XL,temp
+	ST X,r15
+	ldi XL,0x60
+	mov temp,r7
+	ST X,temp
+	ret
+
+INCREMENT_X_ENTER:
+	mov r15,temp
+	ldi XH,0x00
+	ldi XL, 0x61
+	ld temp,X
+	ldi flags,1
+	add temp,flags
+	mov r4,temp
+	ldi XL, 0x62
+	ld flags,X
+	add temp,flags
+	ldi XH,0x00
+	ldi XL, 0x65
+	add XL,temp
+	ST X,r15
+	mov temp,r4
+	ldi XL,0x61
+	ST X,temp
+	ret
 
 CEK_CHAR:
 	ld flags, X
 	cpi flags, 0x02
 	breq UPDATE
-	ldi temp,0x01
-	add flags,temp
-	ST X,flags
 	rjmp ASCII_TO_LCD
 
 UPDATE:
 	clr temp
 	clr A
 	rjmp LOOP
+
+FIRST_DIGIT:
+	ldi flags,0x01
+	cpi temp,1
+	breq TEN
+	cpi temp,2
+	breq TWENTY
+	cpi temp,3
+	breq THIRTY
+	cpi temp,4
+	breq FOURTY
+	ret
+
+TEN:
+	adiw XL,1
+	ld temp,X
+	ldi flags,10
+	add temp,flags
+	ret
+TWENTY:
+	adiw XL,1
+	ld temp,X
+	ldi temp,20
+	add temp,flags
+	ret
+THIRTY:
+	adiw XL,1
+	ld temp,X
+	ldi temp,30
+	add temp,flags
+	ret
+FOURTY:
+	adiw XL,1
+	ld temp,X
+	ldi temp,40
+	add temp,flags
+	ret	
 
 key_init:
 	ldi keyval,0xF0		;Make Cols as i/p
@@ -383,15 +615,21 @@ NINE:
 ZERO:
 	LDI A, 0x30
 	rjmp NEXT
+
 ENTER:
-	ld flags,X
-	subi flags,0x01
-	ST X,flags
+	ldi XL,0x60
+	ld temp,X
+	subi temp,1
+	ST X,temp
 	LDI A, 0x45
 	rjmp NEXT
+
 CLEARKEY:
+	rcall CLEAR_SAVED_CHAR
 	ld flags,X
-	subi flags,0x01
+	ldi flags,0x00
+	ldi XH,0x00
+	ldi XL,0x60
 	ST X,flags
 	LDI A, 0x43
 	rjmp NEXT
