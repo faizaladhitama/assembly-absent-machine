@@ -12,11 +12,13 @@
 .def EW = r20 ; for PORTC
 .def PB = r21 ; for PORTB
 .def A  = r22
-.def row  = r23
+.def row = r23
 .def total_key = r24
+.def proses = r25
 
 .equ keyport = PORTA
 .equ pressed = 0
+.equ next_proses = 1
 
 
 ;keypad aktif saat button di lepas
@@ -42,17 +44,100 @@ MAIN:
 	ldi temp,LOW(RAMEND)
 	out SPL,temp
 	ldi temp,$ff
-	ldi ZH,0x00
-	ldi ZL,0x60
-	ldi XH,0x01
-	ldi XL,0x00
+	ldi XH,0x00
+	ldi XL,0x40
+	ldi proses,0x00
+	st X,proses
 	out DDRB,temp ; Set port B as output
 	out DDRC,temp ; Set port C as output
 	rcall INIT_LCD
 	rcall key_init
 	rcall CLEAR_LCD
+	rcall INIT_COURSE
 	SEI
+
+LOAD_BYTE:
+	lpm ; Load byte from program memory into r0
+	tst r0 ; Check if we've reached the end of the message
+	breq CLEAR ; If so, quit
+	mov A, r0 ; Put the character onto Port B
+	rcall WRITE_TEXT
+	adiw ZL,1 ; Increase Z registers
+	rjmp LOAD_BYTE
+
+LOAD_BYTE_2:
+	lpm ; Load byte from program memory into r0
+	tst r0 ; Check if we've reached the end of the message
+	breq FOREVER ; If so, quit
+	mov A, r0 ; Put the character onto Port B
+	rcall WRITE_TEXT
+	adiw ZL,1 ; Increase Z registers
+	rjmp LOAD_BYTE_2
+
+FOREVER:
+	rjmp FOREVER
+ 	 
+INIT_ABSEN :
+	ldi flags,0x00
+	ST X,flags
+	ldi ZH,HIGH(2*No_Absen)
+	ldi ZL,LOW(2*No_Absen)
+	ret
+
+INIT_COURSE :
+	ldi ZH,HIGH(2*Course_ID)
+	ldi ZL,LOW(2*Course_ID)
+	ret
+
+INIT_SUCCESS:
+	ldi ZH,HIGH(2*Success)
+	ldi ZL,LOW(2*Success)
+	ret
+
+INIT_FORMAT_SALAH:
+	ldi ZH,HIGH(2*Format_Salah)
+	ldi ZL,LOW(2*Format_Salah)
+	ret
+
+CLEAR:
+	rcall PINDAH_BARIS
+	clr A
+	clr temp
 	rjmp LOOP
+
+CLEAR_INPUT:
+	rcall CLEAR_LCD
+	rcall INIT_COURSE
+	clr temp
+	clr A
+	rjmp LOAD_BYTE
+
+ENTER_INPUT:
+	rcall CLEAR_LCD
+	mov temp,r15
+	cpi temp,0x00
+	breq INPUT_NOL	
+	rcall INIT_ABSEN
+	ldi temp,0x01
+	add proses,temp
+	cpi proses,0x02
+	breq SUCCESS_MESSAGE
+	clr temp
+	clr A
+	rjmp LOAD_BYTE
+	
+INPUT_NOL:
+	rcall CLEAR_LCD
+	clr temp
+	clr A
+	rcall INIT_FORMAT_SALAH
+	rjmp LOAD_BYTE_2
+
+SUCCESS_MESSAGE:
+	clr A
+	clr temp
+	rcall INIT_SUCCESS
+	rjmp LOAD_BYTE_2
 
 LOOP:
 	rcall get_key
@@ -60,18 +145,27 @@ LOOP:
 	sub total_key,keyval
 	rcall GET_ASCII
 	tst A
-	brne ASCII_TO_LCD
+	brne CEK_CHAR
 	rjmp UPDATE
 
 ASCII_TO_LCD:
 	cpi A, 0x43
-	breq CLEAR_UPDATE
+	breq CLEAR_INPUT
+	cpi A, 0x45
+	breq ENTER_INPUT
 	rcall WRITE_TEXT
+	subi A,48
+	add r15,A
 	rjmp UPDATE
 
-CLEAR_UPDATE:
-	rcall CLEAR_LCD
-	rjmp UPDATE
+CEK_CHAR:
+	ld flags, X
+	cpi flags, 0x02
+	breq UPDATE
+	ldi temp,0x01
+	add flags,temp
+	ST X,flags
+	rjmp ASCII_TO_LCD
 
 UPDATE:
 	clr temp
@@ -199,8 +293,26 @@ CLEAR_LCD:
 	out PORTB,PB
 	sbi PORTC,0 ; SETB EN
 	cbi PORTC,0 ; CLR EN
-	;rcall WAIT_LCD
 	ret
+
+BALIK_ATAS:
+	cbi PORTA,1
+	cbi PORTA,2
+	ldi temp,0x80
+	out PORTB,temp
+	sbi PORTA,0
+	cbi PORTA,0
+	ret
+
+PINDAH_BARIS:
+	cbi PORTC,1
+	cbi PORTC,2
+	ldi temp,0xC0
+	out PORTB,temp
+	sbi PORTC,0
+	cbi PORTC,0
+	ret
+
 
 WRITE_TEXT:
 	sbi PORTC,1 ; SETB RS
@@ -272,10 +384,32 @@ ZERO:
 	LDI A, 0x30
 	rjmp NEXT
 ENTER:
+	ld flags,X
+	subi flags,0x01
+	ST X,flags
 	LDI A, 0x45
 	rjmp NEXT
 CLEARKEY:
+	ld flags,X
+	subi flags,0x01
+	ST X,flags
 	LDI A, 0x43
 	rjmp NEXT
 NEXT:
 	ret
+
+Course_ID:
+.db "Course ID :"
+.db 0
+
+No_Absen:
+.db "No Absensi :"
+.db 0
+
+Format_Salah:
+.db "Tidak boleh menginput 0"
+.db 0
+
+Success:
+.db "Input Success"
+.db 0
